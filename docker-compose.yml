@@ -1,5 +1,6 @@
 services:
   db:
+  
     image: postgis/postgis:16-3.4
     container_name: crisisgrid_db
     environment:
@@ -16,6 +17,13 @@ services:
     container_name: crisisgrid_redis
     ports:
       - "6380:6379"
-
+  osrm:
+    image: osrm/osrm-backend
+    container_name: crisisgrid_osrm
+    command: osrm-routed --algorithm mld /data/amritsar.osrm
+    volumes:
+      - ./data/osrm:/data
+    ports:
+      - "5001:5000"
 volumes:
   pgdata:
