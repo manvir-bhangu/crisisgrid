@@ -1,14 +1,21 @@
+import redis
 from fastapi import FastAPI
-import os, redis
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+
+from app.api import dispatch, incidents, resources
+
+from app.core.config import settings
+from app.db.session import engine
 
 app = FastAPI(title="CrisisGrid")
+app.include_router(resources.router)
+app.include_router(incidents.router)
+...
+app.include_router(resources.router)
+app.include_router(incidents.router)
+app.include_router(dispatch.router)
+r = redis.from_url(settings.redis_url)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://crisis:crisis@localhost:5433/crisisgrid")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6380/0")
-
-engine = create_engine(DATABASE_URL)
-r = redis.from_url(REDIS_URL)
 
 @app.get("/health")
 def health():
