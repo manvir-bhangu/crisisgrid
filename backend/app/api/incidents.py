@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+
 from app.allocation.candidates import recommend
 from app.core.config import settings
 from app.db.session import engine
+from app.realtime.events import publish
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
 
@@ -15,7 +17,7 @@ class IncidentIn(BaseModel):
     description: str = Field(min_length=3, max_length=2000)
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    category: str | None = None          # AI fills this in later (Step 9)
+    category: str | None = None          # AI fills this in later
     idempotency_key: str | None = None
 
 
@@ -33,7 +35,7 @@ def create_incident(body: IncidentIn):
             existing = conn.execute(text("SELECT id FROM incidents WHERE idempotency_key = :k"),
                                     {"k": body.idempotency_key}).scalar()
             if existing:
-                return dict(_get(conn, existing))
+                return dict(_get(conn, existing))   # duplicate submit: no new event
 
         inside = conn.execute(text("""
             SELECT ST_Covers(z.geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)
@@ -48,7 +50,10 @@ def create_incident(body: IncidentIn):
             RETURNING id"""),
             {"t": body.description, "c": body.category, "lon": body.lon,
              "lat": body.lat, "k": body.idempotency_key}).scalar()
-        return dict(_get(conn, new_id))
+        row = dict(_get(conn, new_id))
+
+    publish("incident_created", row)         # after commit
+    return row
 
 
 @router.get("/{incident_id}")
