@@ -63,7 +63,16 @@ def get_incident(incident_id: int):
     if not row:
         raise HTTPException(404, "Incident not found")
     return dict(row)
-
+@router.get("")
+def list_incidents(active_only: bool = True, limit: int = 100):
+    sql = """SELECT id, raw_text, category, severity, status, created_at,
+                    ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
+             FROM incidents
+             WHERE (:a = FALSE OR status NOT IN ('resolved', 'cancelled'))
+             ORDER BY id DESC LIMIT :n"""
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"a": active_only, "n": limit}).mappings().all()
+    return [dict(r) for r in rows]
 
 @router.get("/{incident_id}/recommendations")
 def recommendations(incident_id: int, resource_type: str | None = None, limit: int = 3):

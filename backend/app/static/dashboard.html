@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CrisisGrid Dispatcher</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{--bg:#10151c;--panel:#161d27;--line:#263140;--text:#e6ebf2;--mute:#8d9bb0;--blue:#4aa3ff}
+  *{box-sizing:border-box} [hidden]{display:none!important}
+  body{margin:0;font:14px system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+  #app{display:grid;grid-template-columns:1fr 400px;height:100vh}
+  #map{height:100vh}
+  aside{overflow-y:auto;background:var(--panel);border-left:1px solid var(--line);padding:12px 14px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  h1{font-size:18px;margin:0} h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);margin:16px 0 6px}
+  .pill{padding:3px 10px;border-radius:12px;font-size:12px}.on{background:#1f6f3f}.off{background:#8a2b2b}
+  input,select,button{font:inherit;color:var(--text);background:#0e131a;border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+  input{width:100%;margin-bottom:6px} button{cursor:pointer} button:hover{border-color:var(--blue)}
+  button.primary{background:#1c4f86;border-color:#2b6cb0} button.small{padding:3px 8px;font-size:12px}
+  .row{display:flex;gap:6px;align-items:center}
+  .card{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#121923}
+  .card.sel{border-color:var(--blue)} .card .t{display:flex;justify-content:space-between;gap:8px}
+  .mute{color:var(--mute);font-size:12px} .tag{font-size:11px;padding:1px 7px;border-radius:9px;background:#223044}
+  .unit{width:22px;height:22px;border-radius:50%;border:2px solid #fff;color:#fff;font:700 11px/18px system-ui;text-align:center}
+  ul{margin:0;padding:0;list-style:none} #feed li{font:12px ui-monospace,Consolas,monospace;padding:4px 0;border-bottom:1px solid var(--line)}
+  .err{color:#ff8a8a;font-size:12px;margin-top:4px}
+</style></head><body>
+<div id="app">
+  <div id="map"></div>
+  <aside>
+    <header><h1>CrisisGrid Dispatcher</h1><span id="conn" class="pill off">connecting</span></header>
+    <div class="mute">Simulated fleet · real facilities (OpenStreetMap + manual)</div>
+
+    <h2>New incident</h2>
+    <input id="desc" placeholder="Describe the emergency">
+    <div class="row">
+      <select id="cat"><option>accident</option><option>medical</option><option>fire</option><option>rescue</option></select>
+      <button id="create" class="primary">Create at pin</button>
+    </div>
+    <div id="hint" class="mute">Click the map to place the pin.</div>
+    <div id="formerr" class="err"></div>
+
+    <h2>Active incidents</h2><div id="incidents"></div>
+
+    <section id="recsec" hidden>
+      <h2 id="rectitle">Recommendations</h2>
+      <select id="rtype"><option value="">auto (by category)</option><option>ambulance</option><option>fire_truck</option><option>rescue</option></select>
+      <div id="recs" style="margin-top:6px"></div>
+    </section>
+
+    <h2>Active assignments</h2><div id="assignments"></div>
+    <h2>Fleet</h2><div id="fleet"></div>
+    <h2>Live feed</h2><ul id="feed"></ul>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API = location.origin;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const FAC_COLOR = {hospital:'#2e9e5b', fire_station:'#e07b00', police:'#5b6bd6'};
+const STATUS_COLOR = {available:'#2e9e5b', assigned:'#d4a800', en_route:'#e07b00', on_scene:'#d63a3a', returning:'#7d8794', out_of_service:'#444'};
+const LETTER = {ambulance:'A', fire_truck:'F', rescue:'R'};
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+
+// ---- map ----
+const map = L.map('map').setView([31.62, 74.8765], 13);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'}).addTo(map);
+L.circle([31.62, 74.8765], {radius: 3000, color: '#4aa3ff', weight: 1, fillOpacity: 0.04}).addTo(map);
+const gFac = L.layerGroup().addTo(map), gUnits = L.layerGroup().addTo(map), gInc = L.layerGroup().addTo(map);
+let pin = null;
+map.on('click', e => {
+  if (pin) map.removeLayer(pin);
+  pin = L.marker(e.latlng).addTo(map);
+  $('hint').textContent = `Pin at ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+});
+
+// ---- state ----
+let resources = [], incidents = [], assignments = [], selected = null;
+
+async function loadFacilities() {
+  const rows = await api('/facilities');
+  rows.forEach(f => L.circleMarker([f.lat, f.lon], {radius: 4, weight: 1, color: '#000',
+    fillColor: FAC_COLOR[f.type] || '#999', fillOpacity: .85})
+    .bindTooltip(`${esc(f.name || '(unnamed)')} · ${f.type}`).addTo(gFac));
+}
+
+async function refresh() {
+  try {
+    [resources, incidents, assignments] = await Promise.all([
+      api('/resources'), api('/incidents?active_only=true'), api('/dispatch/assignments?active_only=true')]);
+  } catch (e) { console.error(e); return; }
+  if (selected && !incidents.some(i => i.id === selected)) { selected = null; $('recsec').hidden = true; }
+  render();
+  if (selected) loadRecs();
+}
+let timer = null;
+const scheduleRefresh = () => { clearTimeout(timer); timer = setTimeout(refresh, 150); };
+
+function render() {
+  gUnits.clearLayers(); gInc.clearLayers();
+  resources.filter(u => u.lat != null).forEach(u => {
+    L.marker([u.lat, u.lon], {icon: L.divIcon({className: '', iconSize: [22, 22],
+      html: `<div class="unit" style="background:${STATUS_COLOR[u.status] || '#999'}">${LETTER[u.type] || '?'}</div>`})})
+      .bindTooltip(`${u.code} · ${u.status}`).addTo(gUnits);
+  });
+  incidents.forEach(i => {
+    L.circleMarker([i.lat, i.lon], {radius: i.id === selected ? 12 : 9, color: '#fff', weight: 2,
+      fillColor: '#d63a3a', fillOpacity: 1}).on('click', () => select(i.id))
+      .bindTooltip(`#${i.id} ${esc(i.category || 'uncategorised')} · ${i.status}`).addTo(gInc);
+  });
+
+  $('incidents').innerHTML = incidents.length ? incidents.map(i => `
+    <div class="card ${i.id === selected ? 'sel' : ''}" data-inc="${i.id}" style="cursor:pointer">
+      <div class="t"><b>#${i.id} ${esc(i.category || 'uncategorised')}</b><span class="tag">${i.status}</span></div>
+      <div class="mute">${esc(i.raw_text).slice(0, 90)}</div></div>`).join('')
+    : '<div class="mute">No active incidents.</div>';
+  document.querySelectorAll('[data-inc]').forEach(el => el.onclick = () => select(+el.dataset.inc));
+
+  $('assignments').innerHTML = assignments.length ? assignments.map(a => `
+    <div class="card"><div class="t"><b>${esc(a.code)}</b> → incident #${a.incident_id}<span class="tag">${a.status}</span></div>
+      <div class="row" style="margin-top:6px">
+        <button class="small" data-adv="${a.id}">Advance</button>
+        ${['assigned', 'en_route'].includes(a.status) ? `<button class="small" data-can="${a.id}">Cancel</button>` : ''}
+      </div></div>`).join('') : '<div class="mute">None.</div>';
+  document.querySelectorAll('[data-adv]').forEach(b => b.onclick = () => act(`/dispatch/assignments/${b.dataset.adv}/advance`));
+  document.querySelectorAll('[data-can]').forEach(b => b.onclick = () => act(`/dispatch/assignments/${b.dataset.can}/cancel`));
+
+  const g = {};
+  resources.forEach(u => { (g[u.type] ||= {})[u.status] = (g[u.type][u.status] || 0) + 1; });
+  $('fleet').innerHTML = Object.entries(g).map(([t, s]) =>
+    `<div class="mute"><b>${t}</b>: ${Object.entries(s).map(([k, v]) => `${v} ${k}`).join(', ')}</div>`).join('');
+}
+
+function select(id) {
+  selected = id; render();
+  const i = incidents.find(x => x.id === id);
+  if (i) map.panTo([i.lat, i.lon]);
+  $('recsec').hidden = false; loadRecs();
+}
+
+async function loadRecs() {
+  const t = $('rtype').value;
+  $('rectitle').textContent = `Recommendations for #${selected}`;
+  try {
+    const d = await api(`/incidents/${selected}/recommendations` + (t ? `?resource_type=${t}` : ''));
+    $('recs').innerHTML = d.recommendations.length ? d.recommendations.map(r => `
+      <div class="card"><div class="t"><b>${r.rank}. ${esc(r.code)}</b>
+        <span class="tag">${r.eta_source === 'osrm' ? 'road ETA' : 'estimate'}</span></div>
+        <div class="mute">ETA ${Math.floor(r.eta_seconds / 60)}m ${r.eta_seconds % 60}s
+          · ${r.road_distance_m != null ? (r.road_distance_m / 1000).toFixed(1) + ' km by road' : (r.straight_line_m / 1000).toFixed(1) + ' km straight'}</div>
+        <button class="small primary" data-asg="${r.resource_id}" style="margin-top:6px">Assign</button></div>`).join('')
+      : `<div class="mute">No available ${esc(d.resource_type)} units.</div>`;
+    document.querySelectorAll('[data-asg]').forEach(b => b.onclick = () => act('/dispatch/assign', {
+      incident_id: selected, resource_id: +b.dataset.asg}));
+  } catch (e) { $('recs').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+$('rtype').onchange = loadRecs;
+
+async function act(path, body) {
+  try {
+    await api(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: body ? JSON.stringify(body) : undefined});
+  } catch (e) { alert(e.message); }
+  refresh();
+}
+
+$('create').onclick = async () => {
+  $('formerr').textContent = '';
+  if (!pin) { $('formerr').textContent = 'Click the map to place a pin first.'; return; }
+  const description = $('desc').value.trim();
+  if (description.length < 3) { $('formerr').textContent = 'Enter a short description.'; return; }
+  try {
+    const inc = await api('/incidents', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({description, lat: pin.getLatLng().lat, lon: pin.getLatLng().lng,
+        category: $('cat').value, idempotency_key: crypto.randomUUID()})});
+    $('desc').value = ''; map.removeLayer(pin); pin = null;
+    $('hint').textContent = 'Click the map to place the pin.';
+    await refresh(); select(inc.id);
+  } catch (e) { $('formerr').textContent = e.message; }
+};
+
+// ---- live socket ----
+function connect() {
+  const ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onopen = () => { $('conn').textContent = 'live'; $('conn').className = 'pill on'; refresh(); };
+  ws.onclose = () => { $('conn').textContent = 'reconnecting'; $('conn').className = 'pill off'; setTimeout(connect, 1500); };
+  ws.onmessage = m => {
+    const e = JSON.parse(m.data);
+    const li = document.createElement('li');
+    li.textContent = `${new Date(e.ts).toLocaleTimeString()}  ${e.type}`;
+    $('feed').prepend(li); while ($('feed').children.length > 25) $('feed').lastChild.remove();
+    scheduleRefresh();
+  };
+}
+
+loadFacilities().then(() => { refresh(); connect(); });
+</script></body></html>
