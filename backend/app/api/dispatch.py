@@ -2,7 +2,9 @@ import json
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
+
 from app.db.session import engine
+from app.realtime.events import publish
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 
@@ -52,12 +54,15 @@ def assign(body: AssignIn):
                      {"i": body.incident_id})
         _event(conn, body.incident_id, "assigned",
                {"assignment_id": aid, "resource": res["code"], "by": body.assigned_by})
-    return {"assignment_id": aid, "incident_id": body.incident_id,
-            "resource_id": body.resource_id, "status": "assigned"}
+
+    result = {"assignment_id": aid, "incident_id": body.incident_id,
+              "resource_id": body.resource_id, "resource": res["code"], "status": "assigned"}
+    publish("assignment_created", result)    # after commit
+    return result
 
 
 @router.post("/assignments/{assignment_id}/advance")
-def advance(assignment_id: int):
+def advance(assignment_id: int, expected: str | None = None):
     with engine.begin() as conn:
         a = conn.execute(text("SELECT * FROM assignments WHERE id = :a FOR UPDATE"),
                          {"a": assignment_id}).mappings().first()
@@ -81,9 +86,11 @@ def advance(assignment_id: int):
         conn.execute(text("UPDATE assignments SET status = :s, updated_at = now() WHERE id = :a"),
                      {"s": nxt, "a": assignment_id})
 
+        incident_status = None
         if nxt == "on_scene":
             conn.execute(text("UPDATE incidents SET status = 'on_scene' WHERE id = :i"),
                          {"i": a["incident_id"]})
+            incident_status = "on_scene"
         if nxt == "completed":
             active = conn.execute(text("""
                 SELECT count(*) FROM assignments
@@ -92,8 +99,14 @@ def advance(assignment_id: int):
             if active == 0:
                 conn.execute(text("UPDATE incidents SET status = 'resolved' WHERE id = :i"),
                              {"i": a["incident_id"]})
+                incident_status = "resolved"
         _event(conn, a["incident_id"], f"assignment_{nxt}", {"assignment_id": assignment_id})
-    return {"assignment_id": assignment_id, "status": nxt}
+
+    result = {"assignment_id": assignment_id, "incident_id": a["incident_id"],
+              "resource_id": a["resource_id"], "status": nxt,
+              "incident_status": incident_status}
+    publish("assignment_updated", result)    # after commit
+    return result
 
 
 @router.post("/assignments/{assignment_id}/cancel")
@@ -117,7 +130,11 @@ def cancel(assignment_id: int):
             conn.execute(text("UPDATE incidents SET status = 'new' WHERE id = :i AND status = 'dispatched'"),
                          {"i": a["incident_id"]})
         _event(conn, a["incident_id"], "assignment_cancelled", {"assignment_id": assignment_id})
-    return {"assignment_id": assignment_id, "status": "cancelled"}
+
+    result = {"assignment_id": assignment_id, "incident_id": a["incident_id"],
+              "resource_id": a["resource_id"], "status": "cancelled"}
+    publish("assignment_updated", result)    # after commit
+    return result
 
 
 @router.get("/assignments")

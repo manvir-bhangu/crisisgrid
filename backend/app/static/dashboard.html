@@ -84,7 +84,7 @@ map.on('click', e => {
 
 // ---- state ----
 let resources = [], incidents = [], assignments = [], selected = null;
-
+let unitMarkers = {};
 async function loadFacilities() {
   const rows = await api('/facilities');
   rows.forEach(f => L.circleMarker([f.lat, f.lon], {radius: 4, weight: 1, color: '#000',
@@ -106,11 +106,13 @@ const scheduleRefresh = () => { clearTimeout(timer); timer = setTimeout(refresh,
 
 function render() {
   gUnits.clearLayers(); gInc.clearLayers();
+   unitMarkers = {};
   resources.filter(u => u.lat != null).forEach(u => {
-    L.marker([u.lat, u.lon], {icon: L.divIcon({className: '', iconSize: [22, 22],
+    unitMarkers[u.id] = L.marker([u.lat, u.lon], {icon: L.divIcon({className: '', iconSize: [22, 22],
       html: `<div class="unit" style="background:${STATUS_COLOR[u.status] || '#999'}">${LETTER[u.type] || '?'}</div>`})})
       .bindTooltip(`${u.code} · ${u.status}`).addTo(gUnits);
   });
+  
   incidents.forEach(i => {
     L.circleMarker([i.lat, i.lon], {radius: i.id === selected ? 12 : 9, color: '#fff', weight: 2,
       fillColor: '#d63a3a', fillOpacity: 1}).on('click', () => select(i.id))
@@ -194,6 +196,12 @@ function connect() {
   ws.onclose = () => { $('conn').textContent = 'reconnecting'; $('conn').className = 'pill off'; setTimeout(connect, 1500); };
   ws.onmessage = m => {
     const e = JSON.parse(m.data);
+        if (e.type === 'unit_moved') {
+      const d = e.data, u = resources.find(x => x.id === d.resource_id);
+      if (u) { u.lat = d.lat; u.lon = d.lon; }
+      if (unitMarkers[d.resource_id]) unitMarkers[d.resource_id].setLatLng([d.lat, d.lon]);
+      return;
+    }
     const li = document.createElement('li');
     li.textContent = `${new Date(e.ts).toLocaleTimeString()}  ${e.type}`;
     $('feed').prepend(li); while ($('feed').children.length > 25) $('feed').lastChild.remove();
