@@ -28,6 +28,16 @@ def dashboard():
     return FileResponse(STATIC / "dashboard.html")
 
 
+@app.get("/report", include_in_schema=False)
+def report_page():
+    return FileResponse(STATIC / "citizen.html")
+
+
+@app.get("/responder", include_in_schema=False)
+def responder_page():
+    return FileResponse(STATIC / "responder.html")
+
+
 @app.get("/health")
 def health():
     with engine.connect() as conn:

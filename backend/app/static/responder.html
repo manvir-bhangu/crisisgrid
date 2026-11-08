@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CrisisGrid Responder</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font:16px system-ui,Segoe UI,sans-serif;background:#10151c;color:#e6ebf2}
+  main{max-width:520px;margin:0 auto;padding:16px}
+  h1{font-size:22px;margin:4px 0} .mute{color:#8d9bb0;font-size:13px}
+  select,button{font:inherit;width:100%;padding:12px;border-radius:8px;border:1px solid #263140;background:#0e131a;color:inherit;margin-top:8px}
+  button.go{background:#1c6b3a;border-color:#2e9e5b;font-weight:600} button.stop{background:#8a2b2b;border-color:#b3262e;font-weight:600}
+  .card{background:#161d27;border:1px solid #263140;border-radius:10px;padding:12px;margin-top:12px}
+  .big{font-size:20px;font-weight:700}
+  .err{color:#ff8a8a;font-size:13px;margin-top:8px;min-height:18px}
+</style></head><body><main>
+  <h1>Responder</h1>
+  <div class="mute">Simulated unit, real phone GPS. Prototype only.</div>
+
+  <label for="unit"><b>Which unit are you?</b></label>
+  <select id="unit"></select>
+
+  <button id="toggle" class="go" type="button">Start sharing my location</button>
+  <div id="err" class="err"></div>
+
+  <div class="card">
+    <div class="mute">Sharing</div><div id="state" class="big">Off</div>
+    <div class="mute" style="margin-top:10px">Unit status (from dispatcher)</div><div id="ustatus" class="big">-</div>
+    <div class="mute" style="margin-top:10px">Last position sent</div><div id="pos">-</div>
+    <div class="mute" style="margin-top:10px">Updates sent</div><div id="count">0</div>
+  </div>
+  <p class="mute">Keep this page open and the screen on while sharing.</p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let units = [], watchId = null, lastSent = 0, count = 0;
+
+async function loadUnits() {
+  units = await (await fetch('/resources')).json();
+  const keep = $('unit').value;
+  $('unit').innerHTML = units.map(u => `<option value="${u.id}">${u.code} (${u.type})</option>`).join('');
+  if (keep) $('unit').value = keep;
+  showStatus();
+}
+function showStatus() {
+  const u = units.find(x => x.id == $('unit').value);
+  $('ustatus').textContent = u ? u.status : '-';
+}
+$('unit').onchange = showStatus;
+
+async function send(lat, lon) {
+  const id = $('unit').value;
+  try {
+    const r = await fetch(`/resources/${id}/location`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({lat, lon})});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+    count++; $('count').textContent = count;
+    $('pos').textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}  (${new Date().toLocaleTimeString()})`;
+    $('err').textContent = '';
+  } catch (e) { $('err').textContent = 'Send failed: ' + e.message; }
+}
+
+function start() {
+  if (!navigator.geolocation) { $('err').textContent = 'This browser has no GPS support.'; return; }
+  $('unit').disabled = true;
+  watchId = navigator.geolocation.watchPosition(p => {
+    const now = Date.now();
+    if (now - lastSent < 2000) return;        // at most one update every 2 seconds
+    lastSent = now;
+    send(p.coords.latitude, p.coords.longitude);
+  }, err => { $('err').textContent = 'GPS error: ' + err.message; },
+  {enableHighAccuracy: true, maximumAge: 1000, timeout: 15000});
+  $('toggle').textContent = 'Stop sharing'; $('toggle').className = 'stop'; $('state').textContent = 'ON';
+}
+function stop() {
+  navigator.geolocation.clearWatch(watchId); watchId = null; $('unit').disabled = false;
+  $('toggle').textContent = 'Start sharing my location'; $('toggle').className = 'go'; $('state').textContent = 'Off';
+}
+$('toggle').onclick = () => watchId === null ? start() : stop();
+
+loadUnits(); setInterval(loadUnits, 5000);
+</script></body></html>
