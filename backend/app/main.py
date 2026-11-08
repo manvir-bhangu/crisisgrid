@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 
-from app.api import dispatch, incidents, resources
+from app.api import ai_api, dispatch, incidents, resources
 from app.core.config import settings
 from app.db.session import engine
 from app.realtime import ws
@@ -16,6 +16,7 @@ app = FastAPI(title="CrisisGrid")
 app.include_router(resources.router)
 app.include_router(resources.facilities_router)
 app.include_router(incidents.router)
+app.include_router(ai_api.router)
 app.include_router(dispatch.router)
 app.include_router(ws.router)
 

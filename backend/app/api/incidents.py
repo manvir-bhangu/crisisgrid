@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
+from app.ai.analyzer import analyze
 from app.allocation.candidates import recommend
 from app.core.config import settings
 from app.db.session import engine
@@ -17,19 +18,19 @@ class IncidentIn(BaseModel):
     description: str = Field(min_length=3, max_length=2000)
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    category: str | None = None          # AI fills this in later
+    category: str | None = None          # if given, counts as dispatcher-verified
     idempotency_key: str | None = None
 
 
 def _get(conn, incident_id: int):
     return conn.execute(text("""
-        SELECT id, raw_text, category, severity, status, created_at,
+        SELECT id, raw_text, category, category_confirmed, severity, status, duplicate_of, created_at,
                ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
         FROM incidents WHERE id = :i"""), {"i": incident_id}).mappings().first()
 
 
 @router.post("", status_code=201)
-def create_incident(body: IncidentIn):
+def create_incident(body: IncidentIn, background: BackgroundTasks):
     with engine.begin() as conn:
         if body.idempotency_key:
             existing = conn.execute(text("SELECT id FROM incidents WHERE idempotency_key = :k"),
@@ -45,15 +46,28 @@ def create_incident(body: IncidentIn):
             raise HTTPException(422, "Location is outside the service zone")
 
         new_id = conn.execute(text("""
-            INSERT INTO incidents (raw_text, category, location, idempotency_key)
-            VALUES (:t, :c, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :k)
+            INSERT INTO incidents (raw_text, category, category_confirmed, location, idempotency_key)
+            VALUES (:t, :c, :cc, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :k)
             RETURNING id"""),
-            {"t": body.description, "c": body.category, "lon": body.lon,
-             "lat": body.lat, "k": body.idempotency_key}).scalar()
+            {"t": body.description, "c": body.category, "cc": body.category is not None,
+             "lon": body.lon, "lat": body.lat, "k": body.idempotency_key}).scalar()
         row = dict(_get(conn, new_id))
 
     publish("incident_created", row)         # after commit
+    background.add_task(analyze, new_id)     # AI runs after the response is sent
     return row
+
+
+@router.get("")
+def list_incidents(active_only: bool = True, limit: int = 100):
+    sql = """SELECT id, raw_text, category, category_confirmed, severity, status, created_at,
+                    ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
+             FROM incidents
+             WHERE (:a = FALSE OR status NOT IN ('resolved', 'cancelled', 'duplicate'))
+             ORDER BY id DESC LIMIT :n"""
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"a": active_only, "n": limit}).mappings().all()
+    return [dict(r) for r in rows]
 
 
 @router.get("/{incident_id}")
@@ -63,16 +77,7 @@ def get_incident(incident_id: int):
     if not row:
         raise HTTPException(404, "Incident not found")
     return dict(row)
-@router.get("")
-def list_incidents(active_only: bool = True, limit: int = 100):
-    sql = """SELECT id, raw_text, category, severity, status, created_at,
-                    ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
-             FROM incidents
-             WHERE (:a = FALSE OR status NOT IN ('resolved', 'cancelled'))
-             ORDER BY id DESC LIMIT :n"""
-    with engine.connect() as conn:
-        rows = conn.execute(text(sql), {"a": active_only, "n": limit}).mappings().all()
-    return [dict(r) for r in rows]
+
 
 @router.get("/{incident_id}/recommendations")
 def recommendations(incident_id: int, resource_type: str | None = None, limit: int = 3):

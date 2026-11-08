@@ -34,7 +34,7 @@ def assign(body: AssignIn):
                            {"i": body.incident_id}).mappings().first()
         if not inc:
             raise HTTPException(404, "Incident not found")
-        if inc["status"] in ("resolved", "cancelled"):
+        if inc["status"] in ("resolved", "cancelled", "duplicate"):
             raise HTTPException(409, f"Incident is already {inc['status']}")
 
         res = conn.execute(text("SELECT id, code, status FROM resources WHERE id = :r FOR UPDATE"),
@@ -62,7 +62,7 @@ def assign(body: AssignIn):
 
 
 @router.post("/assignments/{assignment_id}/advance")
-def advance(assignment_id: int, expected: str | None = None):
+def advance(assignment_id: int, expected: str | None = None): 
     with engine.begin() as conn:
         a = conn.execute(text("SELECT * FROM assignments WHERE id = :a FOR UPDATE"),
                          {"a": assignment_id}).mappings().first()

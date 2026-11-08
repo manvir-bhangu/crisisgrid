@@ -33,7 +33,10 @@
     <h2>New incident</h2>
     <input id="desc" placeholder="Describe the emergency">
     <div class="row">
-      <select id="cat"><option>accident</option><option>medical</option><option>fire</option><option>rescue</option></select>
+      <select id="cat">
+        <option value="">auto (AI suggests)</option>
+        <option>accident</option><option>medical</option><option>fire</option><option>rescue</option>
+      </select>
       <button id="create" class="primary">Create at pin</button>
     </div>
     <div id="hint" class="mute">Click the map to place the pin.</div>
@@ -43,6 +46,7 @@
 
     <section id="recsec" hidden>
       <h2 id="rectitle">Recommendations</h2>
+      <div id="ai" class="card"></div>
       <select id="rtype"><option value="">auto (by category)</option><option>ambulance</option><option>fire_truck</option><option>rescue</option></select>
       <div id="recs" style="margin-top:6px"></div>
     </section>
@@ -85,6 +89,7 @@ map.on('click', e => {
 // ---- state ----
 let resources = [], incidents = [], assignments = [], selected = null;
 let unitMarkers = {};
+
 async function loadFacilities() {
   const rows = await api('/facilities');
   rows.forEach(f => L.circleMarker([f.lat, f.lon], {radius: 4, weight: 1, color: '#000',
@@ -99,20 +104,19 @@ async function refresh() {
   } catch (e) { console.error(e); return; }
   if (selected && !incidents.some(i => i.id === selected)) { selected = null; $('recsec').hidden = true; }
   render();
-  if (selected) loadRecs();
+  if (selected) { loadRecs(); loadAI(); }
 }
 let timer = null;
 const scheduleRefresh = () => { clearTimeout(timer); timer = setTimeout(refresh, 150); };
 
 function render() {
   gUnits.clearLayers(); gInc.clearLayers();
-   unitMarkers = {};
+  unitMarkers = {};
   resources.filter(u => u.lat != null).forEach(u => {
     unitMarkers[u.id] = L.marker([u.lat, u.lon], {icon: L.divIcon({className: '', iconSize: [22, 22],
       html: `<div class="unit" style="background:${STATUS_COLOR[u.status] || '#999'}">${LETTER[u.type] || '?'}</div>`})})
       .bindTooltip(`${u.code} · ${u.status}`).addTo(gUnits);
   });
-  
   incidents.forEach(i => {
     L.circleMarker([i.lat, i.lon], {radius: i.id === selected ? 12 : 9, color: '#fff', weight: 2,
       fillColor: '#d63a3a', fillOpacity: 1}).on('click', () => select(i.id))
@@ -145,7 +149,7 @@ function select(id) {
   selected = id; render();
   const i = incidents.find(x => x.id === id);
   if (i) map.panTo([i.lat, i.lon]);
-  $('recsec').hidden = false; loadRecs();
+  $('recsec').hidden = false; loadRecs(); loadAI();
 }
 
 async function loadRecs() {
@@ -163,6 +167,37 @@ async function loadRecs() {
     document.querySelectorAll('[data-asg]').forEach(b => b.onclick = () => act('/dispatch/assign', {
       incident_id: selected, resource_id: +b.dataset.asg}));
   } catch (e) { $('recs').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function loadAI() {
+  if (!selected) return;
+  const box = $('ai');
+  try {
+    const a = await api(`/incidents/${selected}/assessment`);
+    const inc = incidents.find(i => i.id === selected);
+    const dupes = a.duplicates || [];
+    box.innerHTML = `
+      <div class="t"><b>AI suggestion</b>
+        <span class="tag">${a.source === 'llm' ? 'LLM' : 'rule-based'}${a.cached ? ' · cached' : ''}</span></div>
+      <div style="margin:6px 0"><b>${esc(a.category)}</b> · <b>${esc(a.severity)}</b>
+        <span class="mute"> · confidence ${Math.round((a.confidence || 0) * 100)}%
+        ${a.injuries != null ? ' · injuries ' + a.injuries : ''}${a.trapped ? ' · TRAPPED' : ''}</span></div>
+      <div class="mute">${esc(a.reasoning)}</div>
+      ${a.floor_applied ? '<div class="mute">Severity raised to the protocol minimum.</div>' : ''}
+      ${a.error ? '<div class="mute">LLM unavailable, rules used.</div>' : ''}
+      ${dupes.map(d => `<div class="mute" style="margin-top:6px">Possible duplicate of #${d.incident_id}
+        (${d.distance_m} m, ${d.minutes_apart} min apart)
+        <button class="small" data-dup="${d.incident_id}">Mark duplicate</button></div>`).join('')}
+      <div style="margin-top:8px">${inc && inc.category_confirmed
+        ? `<span class="tag">confirmed: ${esc(inc.category)}</span>`
+        : `<button class="small primary" id="accept">Accept suggestion</button>`}</div>`;
+    const btn = $('accept');
+    if (btn) btn.onclick = () => act(`/incidents/${selected}/confirm`, {category: a.category, severity: a.severity});
+    box.querySelectorAll('[data-dup]').forEach(b => b.onclick = () =>
+      act(`/incidents/${selected}/mark-duplicate`, {duplicate_of: +b.dataset.dup}));
+  } catch (e) {
+    box.innerHTML = '<div class="mute">AI assessment pending…</div>';
+  }
 }
 $('rtype').onchange = loadRecs;
 
@@ -182,7 +217,7 @@ $('create').onclick = async () => {
   try {
     const inc = await api('/incidents', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({description, lat: pin.getLatLng().lat, lon: pin.getLatLng().lng,
-        category: $('cat').value, idempotency_key: crypto.randomUUID()})});
+        category: $('cat').value || null, idempotency_key: crypto.randomUUID()})});
     $('desc').value = ''; map.removeLayer(pin); pin = null;
     $('hint').textContent = 'Click the map to place the pin.';
     await refresh(); select(inc.id);
@@ -196,7 +231,7 @@ function connect() {
   ws.onclose = () => { $('conn').textContent = 'reconnecting'; $('conn').className = 'pill off'; setTimeout(connect, 1500); };
   ws.onmessage = m => {
     const e = JSON.parse(m.data);
-        if (e.type === 'unit_moved') {
+    if (e.type === 'unit_moved') {
       const d = e.data, u = resources.find(x => x.id === d.resource_id);
       if (u) { u.lat = d.lat; u.lon = d.lon; }
       if (unitMarkers[d.resource_id]) unitMarkers[d.resource_id].setLatLng([d.lat, d.lon]);
