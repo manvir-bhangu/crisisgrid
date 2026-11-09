@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CrisisGrid Surge Planner</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font:15px system-ui,Segoe UI,sans-serif;background:#10151c;color:#e6ebf2}
+  main{max-width:980px;margin:0 auto;padding:20px}
+  h1{font-size:22px;margin:0 0 4px} h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#8d9bb0;margin:22px 0 8px}
+  .mute{color:#8d9bb0;font-size:13px}
+  button{font:inherit;padding:10px 16px;border-radius:8px;border:1px solid #263140;background:#0e131a;color:inherit;cursor:pointer}
+  button.primary{background:#1c4f86;border-color:#2b6cb0;font-weight:600} button:disabled{opacity:.5;cursor:default}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #263140;vertical-align:top;font-size:14px}
+  th{color:#8d9bb0;font-weight:500;font-size:12px}
+  .tag{font-size:11px;padding:1px 8px;border-radius:9px;background:#223044}
+  .crit{background:#6b1d22}.high{background:#6b4a12}
+  .warn{background:#3a2f12;padding:8px 10px;border-radius:8px;font-size:13px;margin:10px 0}
+  .ok{color:#6fd08c}.bad{color:#ff8a8a}
+</style></head><body><main>
+  <h1>Surge planner</h1>
+  <div class="mute">Computes one optimal set of assignments for all open incidents (Hungarian algorithm,
+    severity-weighted, road travel times). Nothing is dispatched until you approve. <a href="/dashboard" style="color:#4aa3ff">Dashboard</a></div>
+  <p><button id="plan" class="primary">Compute plan</button></p>
+  <div id="out"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = s => `${Math.floor(s / 60)}m ${s % 60}s`;
+let current = null;
+
+async function post(path, body) {
+  const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+}
+
+function reasons(list, title) {
+  if (!list.length) return '';
+  return `<h2>${title}</h2><table><tr><th>Incident</th><th>Report</th><th>Reason</th></tr>` +
+    list.map(x => `<tr><td>#${x.incident_id}</td><td>${esc(x.text)}</td><td>${esc(x.reason)}</td></tr>`).join('') + '</table>';
+}
+
+$('plan').onclick = async () => {
+  $('plan').disabled = true; $('out').innerHTML = '<div class="mute">Computing...</div>';
+  try {
+    current = await post('/dispatch/plan');
+    const p = current;
+    let html = `<div class="mute">${p.open_incidents} open incidents, ${p.available_units} available units,
+      travel times: ${p.eta_source === 'osrm' ? 'road network (OSRM)' : 'straight-line estimate'}</div>`;
+    if (p.eta_source !== 'osrm') html += '<div class="warn">Road routing unavailable: ETAs are straight-line estimates.</div>';
+    if (p.pairs.length) {
+      html += `<h2>Proposed assignments</h2><table>
+        <tr><th>Incident</th><th>Report</th><th>Severity</th><th>Category</th><th>Unit</th><th>ETA</th></tr>` +
+        p.pairs.map(x => `<tr><td>#${x.incident_id}</td><td>${esc(x.text)}</td>
+          <td><span class="tag ${x.severity}">${esc(x.severity || 'unrated')}</span></td>
+          <td>${esc(x.category)}${x.confirmed ? '' : ' <span class="tag">AI-suggested</span>'}</td>
+          <td><b>${esc(x.code)}</b></td><td>${fmt(x.eta_seconds)}</td></tr>`).join('') + '</table>' +
+        '<p><button id="approve" class="primary">Approve and dispatch all</button></p>';
+    } else html += '<p>No assignments to propose.</p>';
+    html += reasons(p.unserved, 'Not served (no unit available)') + reasons(p.skipped, 'Needs dispatcher review');
+    html += '<div id="result"></div>';
+    $('out').innerHTML = html;
+    if ($('approve')) $('approve').onclick = approve;
+  } catch (e) { $('out').innerHTML = `<div class="bad">${esc(e.message)}</div>`; }
+  $('plan').disabled = false;
+};
+
+async function approve() {
+  $('approve').disabled = true;
+  try {
+    const d = await post('/dispatch/plan/apply',
+      {pairs: current.pairs.map(x => ({incident_id: x.incident_id, resource_id: x.resource_id}))});
+    $('result').innerHTML = '<h2>Result</h2>' + d.results.map(r => r.ok
+      ? `<div class="ok">Incident #${r.incident_id}: assigned (assignment ${r.assignment_id})</div>`
+      : `<div class="bad">Incident #${r.incident_id}: not assigned, ${esc(r.error)}</div>`).join('');
+  } catch (e) { $('result').innerHTML = `<div class="bad">${esc(e.message)}</div>`; $('approve').disabled = false; }
+}
+</script></main></body></html>
