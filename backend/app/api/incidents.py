@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.ai.analyzer import analyze
-from app.allocation.candidates import recommend
+from app.allocation.candidates import candidate_rows, rank
 from app.core.config import settings
 from app.db.session import engine
 from app.realtime.events import publish
@@ -86,5 +86,7 @@ def recommendations(incident_id: int, resource_type: str | None = None, limit: i
         if not inc:
             raise HTTPException(404, "Incident not found")
         rtype = resource_type or RESOURCE_FOR_CATEGORY.get(inc["category"] or "", "ambulance")
-        recs = recommend(conn, inc["lon"], inc["lat"], rtype, top=limit)
+        rows = candidate_rows(conn, inc["lon"], inc["lat"], rtype)
+    # The database connection is released above. The slow network call below must not hold one.
+    recs = rank(rows, inc["lon"], inc["lat"], top=limit)
     return {"incident_id": incident_id, "resource_type": rtype, "recommendations": recs}
