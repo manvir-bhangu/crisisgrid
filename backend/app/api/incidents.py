@@ -1,14 +1,16 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+﻿from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.ai.analyzer import analyze
 from app.allocation.candidates import candidate_rows, rank
+from app.core import security
 from app.core.config import settings
 from app.db.session import engine
 from app.realtime.events import publish
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
+DISPATCH = Depends(security.require(*security.DISPATCH_ROLES))
 
 RESOURCE_FOR_CATEGORY = {"medical": "ambulance", "accident": "ambulance",
                          "fire": "fire_truck", "rescue": "rescue"}
@@ -18,7 +20,7 @@ class IncidentIn(BaseModel):
     description: str = Field(min_length=3, max_length=2000)
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    category: str | None = None          # if given, counts as dispatcher-verified
+    category: str | None = None          # honoured only for logged-in staff
     idempotency_key: str | None = None
 
 
@@ -29,15 +31,11 @@ def _get(conn, incident_id: int):
         FROM incidents WHERE id = :i"""), {"i": incident_id}).mappings().first()
 
 
-@router.post("", status_code=201)
-def create_incident(body: IncidentIn, background: BackgroundTasks):
+@router.post("", status_code=201, dependencies=[Depends(security.public_report_limit)])
+def create_incident(body: IncidentIn, background: BackgroundTasks, request: Request):
+    user = security.get_user(request)
+    category = body.category if user else None      # a stranger cannot create a "verified" incident
     with engine.begin() as conn:
-        if body.idempotency_key:
-            existing = conn.execute(text("SELECT id FROM incidents WHERE idempotency_key = :k"),
-                                    {"k": body.idempotency_key}).scalar()
-            if existing:
-                return dict(_get(conn, existing))   # duplicate submit: no new event
-
         inside = conn.execute(text("""
             SELECT ST_Covers(z.geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)
             FROM zones z WHERE z.name = :z"""),
@@ -45,12 +43,18 @@ def create_incident(body: IncidentIn, background: BackgroundTasks):
         if not inside:
             raise HTTPException(422, "Location is outside the service zone")
 
+        # One statement: a repeated or simultaneous submit with the same key creates nothing new
         new_id = conn.execute(text("""
             INSERT INTO incidents (raw_text, category, category_confirmed, location, idempotency_key)
             VALUES (:t, :c, :cc, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, :k)
+            ON CONFLICT (idempotency_key) DO NOTHING
             RETURNING id"""),
-            {"t": body.description, "c": body.category, "cc": body.category is not None,
+            {"t": body.description, "c": category, "cc": category is not None,
              "lon": body.lon, "lat": body.lat, "k": body.idempotency_key}).scalar()
+        if new_id is None:
+            existing = conn.execute(text("SELECT id FROM incidents WHERE idempotency_key = :k"),
+                                    {"k": body.idempotency_key}).scalar()
+            return dict(_get(conn, existing))       # already received: no new event, no new AI call
         row = dict(_get(conn, new_id))
 
     publish("incident_created", row)         # after commit
@@ -58,7 +62,7 @@ def create_incident(body: IncidentIn, background: BackgroundTasks):
     return row
 
 
-@router.get("")
+@router.get("", dependencies=[DISPATCH])
 def list_incidents(active_only: bool = True, limit: int = 100):
     sql = """SELECT id, raw_text, category, category_confirmed, severity, status, created_at,
                     ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon
@@ -70,7 +74,7 @@ def list_incidents(active_only: bool = True, limit: int = 100):
     return [dict(r) for r in rows]
 
 
-@router.get("/{incident_id}")
+@router.get("/{incident_id}", dependencies=[DISPATCH])
 def get_incident(incident_id: int):
     with engine.connect() as conn:
         row = _get(conn, incident_id)
@@ -79,7 +83,7 @@ def get_incident(incident_id: int):
     return dict(row)
 
 
-@router.get("/{incident_id}/recommendations")
+@router.get("/{incident_id}/recommendations", dependencies=[DISPATCH])
 def recommendations(incident_id: int, resource_type: str | None = None, limit: int = 3):
     with engine.connect() as conn:
         inc = _get(conn, incident_id)

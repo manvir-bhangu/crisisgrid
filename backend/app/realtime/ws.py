@@ -1,9 +1,11 @@
 import asyncio
+from urllib.parse import urlparse
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, RedirectResponse
 
+from app.core import security
 from app.core.config import settings
 from app.realtime.events import CHANNEL
 
@@ -12,6 +14,12 @@ router = APIRouter()
 
 @router.websocket("/ws")
 async def events_socket(ws: WebSocket):
+    user = security.get_user(ws)
+    origin = ws.headers.get("origin")
+    if (user is None or user["role"] not in security.DISPATCH_ROLES
+            or (origin and urlparse(origin).netloc != ws.headers.get("host"))):
+        await ws.close(code=1008)            # refused before the connection is accepted
+        return
     await ws.accept()
     client = aioredis.from_url(settings.redis_url, decode_responses=True)
     pubsub = client.pubsub()
@@ -65,5 +73,10 @@ connect();
 
 
 @router.get("/live", response_class=HTMLResponse, include_in_schema=False)
-def live_page():
+def live_page(request: Request):
+    user = security.get_user(request)
+    if user is None:
+        return RedirectResponse("/login?next=/live", status_code=303)
+    if user["role"] not in security.DISPATCH_ROLES:
+        return HTMLResponse("<h3>Your account cannot open this page.</h3>", status_code=403)
     return LIVE_PAGE

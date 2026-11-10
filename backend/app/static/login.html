@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CrisisGrid sign in</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font:16px system-ui,Segoe UI,sans-serif;background:#10151c;color:#e6ebf2}
+  main{max-width:360px;margin:12vh auto;padding:20px}
+  h1{font-size:24px;margin:0 0 4px} .mute{color:#8d9bb0;font-size:13px}
+  label{display:block;margin-top:14px;font-size:14px}
+  input{width:100%;margin-top:4px;padding:11px;font:inherit;color:inherit;background:#0e131a;border:1px solid #263140;border-radius:8px}
+  button{width:100%;margin-top:18px;padding:12px;font:inherit;font-weight:600;color:inherit;background:#1c4f86;border:1px solid #2b6cb0;border-radius:8px;cursor:pointer}
+  #msg{margin-top:12px;color:#ff8a8a;min-height:20px;font-size:14px}
+</style></head><body><main>
+  <h1>CrisisGrid</h1><div class="mute">Staff sign in</div>
+  <form id="f">
+    <label>Username<input id="u" autocomplete="username" autofocus></label>
+    <label>Password<input id="p" type="password" autocomplete="current-password"></label>
+    <button type="submit">Sign in</button>
+  </form>
+  <div id="msg"></div>
+  <p class="mute">Citizens do not need an account: <a href="/report" style="color:#4aa3ff">report an emergency</a>.</p>
+<script>
+document.getElementById('f').onsubmit = async e => {
+  e.preventDefault();
+  const msg = document.getElementById('msg'); msg.textContent = '';
+  try {
+    const r = await fetch('/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: document.getElementById('u').value, password: document.getElementById('p').value})});
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { msg.textContent = d.detail || 'Sign in failed'; return; }
+    const next = new URLSearchParams(location.search).get('next');
+    const safe = next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\');
+    location.href = safe ? next : (d.role === 'responder' ? '/responder' : '/dashboard');
+  } catch (err) { msg.textContent = 'Could not reach the server'; }
+};
+</script></main></body></html>

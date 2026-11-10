@@ -80,7 +80,10 @@ def main():
 
     speed_ms = args.speed_kmh / 3.6 * args.accel
     delay, dwell = args.dispatch_delay / args.accel, args.dwell / args.accel
-    client = httpx.Client(base_url=API, timeout=5)
+    import os
+    from dotenv import dotenv_values
+    env = dotenv_values(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
+    client = httpx.Client(base_url=API, timeout=5, headers={"X-API-Key": env.get("SERVICE_API_KEY", "")})
     incident_loc, state = {}, {}
     last = time.monotonic()
     print(f"Simulator running: {args.speed_kmh} km/h, {args.accel}x time. Ctrl+C to stop.")

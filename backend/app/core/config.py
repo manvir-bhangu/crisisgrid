@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     ai_enabled: bool = True
     ai_timeout_s: float = 8.0
+    auth_enabled: bool = True
+    secret_key: str = ""
+    service_api_key: str = ""
+    session_hours: int = 12
 
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
