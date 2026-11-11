@@ -1,0 +1,11 @@
+﻿id,lang,text,category,severity
+S091,en,"Motorcycle rider hit a stray cow near Attari road, he is sitting up holding his shoulder, helmet on, talking normally",accident,medium
+S092,hi-en,"bhai meri gali mein cylinder leak ho raha hai, sabne gas band kar di, hawa chala rahe hain, abhi koi dikkat nahi",fire,medium
+S093,pa-en,"papa nu ulti aa rahi hai te chakkar, kal raat da khana khaya si, baaki sab theek ne",medical,medium
+S094,en,"Someone is shouting for help from the third floor, I cannot tell where, there is smoke on the stairs",fire,critical
+S095,hi,"सड़क पर गाय को कार ने टक्कर मारी, गाय घायल है, कार वाला भाग गया",other,low
+S096,en,"Man collapsed in the gym after lifting weights, not responding, friends are doing chest compressions",medical,critical
+S097,en,"A drunk man is lying on the footpath near the bus stand, he is snoring and smells of alcohol",medical,low
+S098,pa,"ਸਾਡੇ ਸਕੂਲ ਦੀ ਛੱਤ ਤੋਂ ਇੱਕ ਬੱਚਾ ਡਿੱਗ ਪਿਆ ਹੈ ਤੇ ਹਿੱਲ ਨਹੀਂ ਰਿਹਾ",medical,critical
+S099,en,"There is a small fire in the garbage pile behind the market, the shopkeepers are putting water on it",fire,low
+S100,hi-en,"road pe bike aur rickshaw takraye, dono log uth gaye, ek ke ghutne se khoon aa raha hai, hosh mein hain",accident,medium

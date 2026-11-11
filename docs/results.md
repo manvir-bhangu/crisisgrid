@@ -1,4 +1,123 @@
-Setting	Critical served (C and E identical)	E vs C, critical response time (N=8 / 15 / 25)	E vs C, mean over all served (N=8 / 15 / 25)
-Default (weights 8,4,2,1, 70% free)	100% / 100% / 99.6%	+1.3 s / -1.7 s / -4.3 s	-16 s / -35 s / -40 s
-Flatter weights (4,3,2,1)	100% / 100% / 99.6%	+7.4 s / +4.7 s / +2.1 s	-17 s / -37 s / -42 s
-Scarce fleet (50% free, about 6 units)	98.4% / 98.8% / 93.7%	+1.9 s / -2.8 s / -11.0 s	-22 s / -37 s / -45 s
+﻿# CrisisGrid - results log
+
+All numbers are from one laptop (Windows, Docker for PostGIS/Redis/OSRM, one uvicorn process).
+Scenarios and severity mixes are synthetic and written by the author.
+
+## 1. AI triage pilot (30 synthetic scenarios, run_20261108_115026)
+
+| Metric | B: rules only | C: LLM + protocol floor |
+|---|---|---|
+| Category accuracy | 66.7% | 96.7% |
+| Category macro-F1 | 0.658 | 0.960 |
+| Severity exact | 43.3% | 80.0% |
+| Under-triage rate | 46.7% | 6.7% |
+| Critical cases missed | 6/13 | 0/13 |
+| McNemar (category) | | only B right 1, only C right 10, p = 0.012 |
+
+Model: gemini-3.5-flash-lite, 0/30 fallbacks. Per-language rows (hi n=1, pa n=2) are too small to quote.
+Caveats: labels, rules and prompt were all written by the author and an AI assistant. The keyword floor
+contributes to the critical-case result; an ablation (LLM alone vs LLM + floor) is still to do.
+C also over-triaged 4 of 30 reports.
+
+## 2. Dispatch optimizer (12 ambulances, 200 trials per surge size, seed 42, road times from OSRM)
+
+Methods: A nearest straight-line | B nearest road time | C road time + critical first |
+D Hungarian unweighted | E Hungarian priority-weighted.
+
+| Setting | Critical served, C and E | E vs C, critical response (N=8/15/25) | E vs C, mean over served (N=8/15/25) |
+|---|---|---|---|
+| Default: weights 8,4,2,1, 70% of units free | 100% / 100% / 99.6% | +1.3 / -1.7 / -4.3 s | -16 / -35 / -40 s |
+| Flatter weights 4,3,2,1 | 100% / 100% / 99.6% | +7.4 / +4.7 / +2.1 s | -17 / -37 / -42 s |
+| Scarce fleet: 50% of units free | 98.4% / 98.8% / 93.7% | +1.9 / -2.8 / -11.0 s | -22 / -37 / -45 s |
+
+Findings:
+- Serving critical incidents first (C and E) protects them: A and B served only 53% / 35% of critical
+  incidents at N = 15 / 25 with 70% of units free.
+- Hungarian adds a 16-45 s efficiency gain over critical-first in all nine settings, at the same critical coverage.
+- Hungarian does NOT generally speed up critical cases. With flatter weights it is 2-7 s slower for them.
+  It helps critical response clearly only when units are scarce (11 s faster at N = 25, 50% free).
+- With a scarce fleet, 6% of critical incidents stay unserved at N = 25 whatever the algorithm.
+- Straight-line vs road-time ranking (A vs B) differs by only about 4 s: a compact city makes them similar.
+Caveats: D has the lowest mean only because it ignores severity (26-36% of critical served at N = 25).
+About 18 paired tests per run, p-values uncorrected, differences of 2-7 s are operationally small.
+Assumptions: uniform random incident locations, severity mix 15/25/35/25, one batch per surge,
+driving time only, ambulances only, units start at stations.
+Correctness: the Hungarian implementation matches exhaustive search on 200 random cases (pytest, 3 passed).
+
+## 3. Reliability checks
+
+| Condition | Result |
+|---|---|
+| Normal | Incident created (201), road ETAs, AI source = llm |
+| Redis stopped, before fix | create 831-1293 ms, 201 |
+| Redis stopped, after non-blocking publish | create 56-74 ms, 201, AI llm |
+| OSRM stopped | recommendations ok, source = straight_line_fallback (1043 ms) |
+| Database stopped | HTTP 500, nothing saved |
+| 20 simultaneous requests for one ambulance | 1 x 201, 19 x 409 (PASS) |
+
+## 4. Load test (300 incidents per run; AI setting during runs: TODO confirm)
+
+| Clients | Create p50 / p95 / p99 (ms) | Throughput | Event delay p50 / p95 (ms) | Recommendations p50 / p95 (ms), 200 requests |
+|---|---|---|---|---|
+| 10 | 126 / 494 / 848 | 61.9 req/s | 27 / 45 | 71 / 127 |
+| 20 | 154 / 214 / 227 | 122.3 req/s | 41 / 64 | 94 / 116 |
+| 50 | 426 / 477 / 485 | 114.1 req/s | 23 / 36 | 320 / 347 |
+
+Before the fix, recommendations at 50 clients succeeded 95/200 (ConnectError on 105, p50 5.7 s).
+Three changes were made together (release DB connection before the OSRM call, shared HTTP client with a
+20 s skip after a failure, larger connection pool), so the improvement is not attributed to one of them.
+Write throughput levels off near 115-120 req/s on this machine.
+
+## 5. Security
+
+check_auth.py: all checks PASS (anonymous reads and writes refused, forged cookie and wrong key refused,
+anonymous WebSocket refused, citizen cannot set a verified category, 10 simultaneous retries with one key give
+one incident, anonymous reports rate limited).
+
+## 6. Not yet demonstrated
+- Phone GPS through the tunnel (unconfirmed)
+- Browser login walkthrough
+- 150-scenario dataset, independent labels and agreement
+- LLM-only vs LLM + floor ablation
+
+## 2b. Neutral weighted-cost check (equal scoring weights, 1800 s penalty per unserved incident)
+
+Negative = E better. E optimises weights 8,4,2,1 in all rows.
+
+| Setting | E vs C (N=8/15/25) | E vs D (N=8/15/25) |
+|---|---|---|
+| 70% of units free | -14.2 / -19.4 / -13.4 s | +12.2 / +31.9 / +30.3 s |
+| 50% of units free | -15.6 / -14.6 / -10.5 s | +22.8 / +30.1 / +23.6 s |
+
+With scoring weights equal to E's own (8,4,2,1, 70% free), E beats C by 9.1 / 16.5 / 16.1 s, but this is partly
+by construction because E optimises that metric.
+
+Reading: E matches critical-first on critical coverage and is about 10-19 s better than it on neutral cost.
+Unweighted Hungarian (D) is 12-32 s better than E on neutral cost but serves far fewer critical incidents
+(55.5% vs 100% at N = 15, 70% free). E is a trade-off, not a dominant method.
+All methods serve the same number of incidents (limited by free units), so the unserved penalty is identical
+across methods; differences come only from travel times of served incidents.
+
+## Label provenance (state this in the report)
+- All scenario texts and labels were written by the author with an AI assistant. No independent human annotator.
+- Labels follow docs/rubric.md, adapted from the idea behind ESI and START triage (verify and cite properly).
+- Consequence: results are a development benchmark on synthetic data. They show the pipeline works and how it
+  behaves; they do not validate it against real dispatchers or real emergencies.
+- Scenarios S001-S010 and S031-S060 are dev; S011-S030 are test. Rules and prompts were not tuned on test.
+- Ambiguous labels (the assistant was unsure): S032, S045, S046, S049, S060.
+
+## Batch 3 (S061-S090, test split)
+- Written and labelled by the author with an AI assistant; no independent annotator.
+- Deliberately includes keyword traps (fire station booking, burnt toast, fire alarm, "no fire"),
+  emergencies without obvious keywords (blue lips, weak hand, neighbour not answering), and two injection attempts.
+- Ambiguous labels (the assistant was unsure): S066, S069, S070, S073, S079, S082, S083.
+- Test split is now S011-S030 and S061-S090 (50 scenarios). Do not tune rules or prompts after seeing test results.
+
+## Batches 4 and 5 (S091-S150)
+- Written and labelled by the author with an AI assistant; no independent annotator.
+- Split: S091-S100 dev; S101-S150 test. Totals: 50 dev, 100 test.
+- Ambiguous labels (the assistant was unsure): S097, S106, S111, S120, S124, S131, S139.
+- Important limitation: the scenario author and labeller is itself a language model, and the system under
+  test uses a language model. Shared blind spots can make agreement look better than it would be against
+  human dispatchers. Treat all results as a development benchmark on synthetic data.
+- Scenarios were not written to fit the rules or the prompt, but the author could see how both were built.

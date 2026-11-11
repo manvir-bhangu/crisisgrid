@@ -1,0 +1,21 @@
+﻿id,lang,text,category,severity
+S101,en,"My mother has asthma and her inhaler is not working, she is wheezing badly and can barely talk",medical,critical
+S102,hi-en,"meri gaadi ka tyre phat gaya highway pe, hum safe hain side pe khade hain, tow chahiye",other,low
+S103,pa-en,"veere ek bacha pani de tank vich dig gaya hai, bahar kadh liya hai par ohda saah ghut riha hai",medical,critical
+S104,en,"A strong smell of something burning in our building but I can't find the source, no smoke visible",fire,medium
+S105,en,"Two cars collided head on at the Ranjit Avenue crossing, both drivers are out of their cars and arguing, no one seems hurt",accident,low
+S106,hi,"मेरे घर की छत से पानी टपक रहा है और दीवार में दरार आ गई है, डर लग रहा है",other,medium
+S107,en,"Man electrocuted while fixing a street light, he is hanging on the pole and not moving",rescue,critical
+S108,pa,"ਮੇਰੇ ਛੋਟੇ ਭਰਾ ਨੇ ਗਲਤੀ ਨਾਲ ਦਵਾਈ ਦੀਆਂ ਗੋਲੀਆਂ ਖਾ ਲਈਆਂ ਹਨ ਤੇ ਉਹ ਸੁਸਤ ਹੋ ਗਿਆ ਹੈ",medical,high
+S109,en,"Fire alarm test is scheduled in our building at 3pm, just informing the fire department",other,low
+S110,hi-en,"bhai ek aadmi ko saap ne kaat liya hai khet mein, wo ghabra raha hai, haath sooj gaya hai",medical,high
+S111,en,"Truck full of gas cylinders overturned on the bypass, some cylinders are rolling on the road, no fire, driver is out and fine",fire,high
+S112,pa-en,"mere bhra da accident ho gya sade ghar de saamne, ohnu hosh hai par pair toh bahut khoon nikal riha",accident,high
+S113,en,"Water is rising in the basement parking, two cars are submerged, nobody inside",other,low
+S114,hi,"पुल के नीचे नदी में एक आदमी बह रहा है, चिल्ला रहा है",rescue,critical
+S115,en,"heart patient grandfather, chest pain started 10 min ago but he says it is gas and refuses to go to hospital, he is sweating",medical,high
+S116,en,"A group of boys are throwing stones at passing buses near the railway station",other,medium
+S117,hi-en,"kal se bacche ko bukhar hai aur ab daane nikal aaye hain, thoda ghabrahat hai",medical,medium
+S118,en,"Smoke and flames coming from the roof of the school building, classes are in session",fire,critical
+S119,pa,"ਸਾਡੇ ਪਿੰਡ ਵਿੱਚ ਬਿਜਲੀ ਦਾ ਖੰਭਾ ਡਿੱਗ ਪਿਆ ਹੈ ਪਰ ਉੱਥੇ ਕੋਈ ਨਹੀਂ ਹੈ",other,medium
+S120,en,"I am an ambulance driver and my ambulance broke down on the way with a patient, need another one urgently",medical,high

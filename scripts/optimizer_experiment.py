@@ -1,4 +1,4 @@
-"""Offline experiment: dispatch strategies on surges of simultaneous incidents.
+﻿"""Offline experiment: dispatch strategies on surges of simultaneous incidents.
 All strategies are scored on real OSRM road travel times, on identical scenarios."""
 import argparse
 import csv
@@ -25,6 +25,7 @@ CENTER_LON, CENTER_LAT, RADIUS_M = 74.8765, 31.62, 3000
 SEV_P = [0.15, 0.25, 0.35, 0.25]          # critical, high, medium, low (assumed mix)
 METHODS = ["A nearest straight-line", "B nearest road-time", "C road-time + critical first",
            "D Hungarian (unweighted)", "E Hungarian (priority-weighted)"]
+METRICS = ((0, "all served"), (1, "critical only"), (2, "weighted cost"))
 
 
 def load_units():
@@ -89,7 +90,9 @@ def main():
     ap.add_argument("--n", type=int, nargs="+", default=[8, 15, 25], help="incidents per surge")
     ap.add_argument("--trials", type=int, default=200)
     ap.add_argument("--avail", type=float, default=0.7, help="chance each ambulance is free")
-    ap.add_argument("--weights", default="8,4,2,1", help="critical,high,medium,low weights")
+    ap.add_argument("--weights", default="8,4,2,1", help="weights E optimises (critical,high,medium,low)")
+    ap.add_argument("--eval-weights", default=None, help="weights used to SCORE the weighted cost (default: same)")
+    ap.add_argument("--penalty", type=float, default=1800.0, help="seconds charged for an unserved incident")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
@@ -97,6 +100,7 @@ def main():
     if len(units) == 0:
         sys.exit("No ambulances found. Run scripts/seed_resources.py first.")
     ws = np.array([float(x) for x in args.weights.split(",")])
+    ev = np.array([float(x) for x in (args.eval_weights or args.weights).split(",")])
     client = httpx.Client(timeout=10)
     try:
         road_matrix(client, units[:1], units[:1])
@@ -104,11 +108,13 @@ def main():
         sys.exit(f"OSRM is not reachable ({exc!r}). Start it with: docker start crisisgrid_osrm")
 
     print(f"{len(units)} ambulances | {args.trials} trials per size | availability {args.avail:.0%} "
-          f"| weights crit/high/med/low = {args.weights} | seed {args.seed}")
+          f"| E weights {args.weights} | scoring weights {args.eval_weights or args.weights} "
+          f"| unserved penalty {args.penalty:.0f}s | seed {args.seed}")
     out_rows = []
 
     for N in args.n:
-        agg = {m: {"t": [], "ct": [], "ctot": 0, "cserv": 0, "serv": 0, "tot": 0, "ms": []} for m in METHODS}
+        agg = {m: {"t": [], "ct": [], "ctot": 0, "cserv": 0, "serv": 0, "tot": 0, "ms": [], "wc": []}
+               for m in METHODS}
         per_trial = {m: [] for m in METHODS}
 
         for trial in range(args.trials):
@@ -120,6 +126,7 @@ def main():
             pts = np.array([random_point(rng) for _ in range(N)])
             sev = rng.choice(4, size=N, p=SEV_P)
             w = ws[sev]
+            w_eval = ev[sev]
             S, R = straight_matrix(U, pts), road_matrix(client, U, pts)
             arrival = list(range(N))
             prio = sorted(arrival, key=lambda j: (-w[j], j))
@@ -133,12 +140,13 @@ def main():
             }
             for m, (plan, ms) in plans.items():
                 a = agg[m]
-                times, ctimes = [], []
+                times, ctimes, wsum = [], [], 0.0
                 for j in range(N):
                     crit = int(sev[j] == 0)
                     a["tot"] += 1
                     a["ctot"] += crit
-                    if j in plan and np.isfinite(R[plan[j], j]):
+                    served = j in plan and np.isfinite(R[plan[j], j])
+                    if served:
                         tj = float(R[plan[j], j])
                         a["serv"] += 1
                         a["cserv"] += crit
@@ -147,12 +155,18 @@ def main():
                         if crit:
                             ctimes.append(tj)
                             a["ct"].append(tj)
+                    else:
+                        tj = args.penalty
+                    wsum += w_eval[j] * tj
                 a["ms"].append(ms)
+                wc = wsum / w_eval.sum()
+                a["wc"].append(wc)
                 per_trial[m].append((np.mean(times) if times else np.nan,
-                                     np.mean(ctimes) if ctimes else np.nan))
+                                     np.mean(ctimes) if ctimes else np.nan, wc))
 
         print(f"\n=== {N} simultaneous incidents per surge ===")
-        print(f"{'method':32}{'mean s':>8}{'p95 s':>8}{'crit mean s':>13}{'crit served':>13}{'served':>9}{'solve ms':>10}")
+        print(f"{'method':32}{'mean s':>8}{'p95 s':>8}{'crit mean s':>13}{'crit served':>13}"
+              f"{'served':>9}{'w.cost s':>10}{'solve ms':>10}")
         for m in METHODS:
             a = agg[m]
             mean = np.mean(a["t"]) if a["t"] else float("nan")
@@ -160,13 +174,15 @@ def main():
             cm = np.mean(a["ct"]) if a["ct"] else float("nan")
             cs = a["cserv"] / a["ctot"] if a["ctot"] else float("nan")
             sv = a["serv"] / a["tot"]
+            wc = np.mean(a["wc"])
             ms = np.mean(a["ms"])
-            print(f"{m:32}{mean:8.0f}{p95:8.0f}{cm:13.0f}{cs:13.1%}{sv:9.1%}{ms:10.2f}")
-            out_rows.append([N, m, round(mean, 1), round(p95, 1), round(cm, 1), round(cs, 4), round(sv, 4), round(ms, 3)])
+            print(f"{m:32}{mean:8.0f}{p95:8.0f}{cm:13.0f}{cs:13.1%}{sv:9.1%}{wc:10.0f}{ms:10.2f}")
+            out_rows.append([N, m, round(mean, 1), round(p95, 1), round(cm, 1), round(cs, 4),
+                             round(sv, 4), round(wc, 1), round(ms, 3)])
 
-        print("Paired comparisons, mean difference in seconds (negative = E is faster), Wilcoxon p:")
+        print("Paired comparisons, mean difference in seconds (negative = E is better), Wilcoxon p (uncorrected):")
         for other in (METHODS[1], METHODS[2], METHODS[3]):
-            for idx, label in ((0, "all served"), (1, "critical only")):
+            for idx, label in METRICS:
                 n, diff, p = paired(per_trial[METHODS[4]], per_trial[other], idx)
                 ptxt = "n/a" if p is None else f"{p:.4f}"
                 print(f"  E vs {other[:1]}  {label:14} n={n:3}  diff={diff:8.1f}s  p={ptxt}")
@@ -175,7 +191,7 @@ def main():
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["n_incidents", "method", "mean_s", "p95_s", "critical_mean_s",
-                    "critical_served", "served", "solve_ms"])
+                    "critical_served", "served", "weighted_cost_s", "solve_ms"])
         w.writerows(out_rows)
     print(f"\nSaved to {out}")
 

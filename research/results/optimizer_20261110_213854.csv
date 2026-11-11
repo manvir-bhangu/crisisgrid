@@ -1,0 +1,16 @@
+n_incidents,method,mean_s,p95_s,critical_mean_s,critical_served,served,weighted_cost_s,solve_ms
+8,A nearest straight-line,252.1,463.4,251.5,0.7114,0.735,662.3,0.052
+8,B nearest road-time,248.2,459.0,245.6,0.7114,0.735,659.5,0.016
+8,C road-time + critical first,248.5,463.0,202.3,0.9837,0.735,659.6,0.013
+8,D Hungarian (unweighted),196.2,386.4,190.0,0.7154,0.735,621.2,0.077
+8,E Hungarian (priority-weighted),227.2,439.6,201.8,0.9837,0.735,644.0,0.024
+15,A nearest straight-line,250.6,466.5,248.6,0.3966,0.406,1171.0,0.054
+15,B nearest road-time,248.3,462.9,244.4,0.3966,0.406,1170.0,0.019
+15,C road-time + critical first,249.2,457.0,211.3,0.9878,0.406,1170.4,0.016
+15,D Hungarian (unweighted),139.2,267.1,128.4,0.4015,0.406,1125.7,0.082
+15,E Hungarian (priority-weighted),213.3,405.2,205.5,0.9878,0.406,1155.8,0.029
+25,A nearest straight-line,252.7,462.6,250.1,0.235,0.2358,1435.1,0.057
+25,B nearest road-time,248.2,461.5,244.3,0.235,0.2358,1434.1,0.018
+25,C road-time + critical first,247.2,467.7,224.4,0.9372,0.2358,1433.8,0.015
+25,D Hungarian (unweighted),102.5,191.1,98.9,0.263,0.2358,1399.7,0.087
+25,E Hungarian (priority-weighted),202.6,409.9,209.2,0.9372,0.2358,1423.3,0.034
