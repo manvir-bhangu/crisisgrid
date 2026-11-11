@@ -140,3 +140,17 @@ real data; "0/31 critical missed" is compatible with a true miss rate of up to a
 baseline; per-language cells are small. The test split was inspected after this run, so any later change to the
 rules, prompt or floor must be reported as post-hoc.
 Dataset: 150 scenarios (50 dev, 100 test); critical 49, high 42, low 35, medium 24; en 84, hi-en 26, pa-en 16, hi 13, pa 11.
+
+## 8. Floor ablation (post-hoc; correction to section 1)
+
+Severity, test (100): LLM alone exact 77% / under 8% / over 15% / critical recall 100%;
+LLM + original floor 68% / 7% / 25% / 100%. The original floor changed 13 answers: helped 1, hurt 12.
+Dev (50): LLM alone 74% / 10% / 16% / 94.4%; with original floor 64% / 10% / 26% / 94.4%; changed 6: helped 0, hurt 6.
+The original floor did not add critical recall, so the statement in section 1 that the keyword floor contributes
+to the critical-case result is not supported by the 150-scenario data.
+Change: the floor was narrowed to unambiguous life-threat phrases (critical list only; the broad "high" keyword list
+was removed from the floor). The rules-only baseline B is unchanged.
+Process: the change was designed after the test split had been inspected, so the post-change test number is
+post-hoc, not a clean holdout. A fresh holdout batch is needed for a clean measurement.
+Limits: eight author-written injection cases cannot establish injection robustness; the floor is kept as
+defence in depth, not as proven protection.

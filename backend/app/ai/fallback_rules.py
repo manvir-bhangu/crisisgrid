@@ -1,4 +1,4 @@
-"""Deterministic keyword baseline. Used when the LLM is unavailable, as the
+﻿"""Deterministic keyword baseline. Used when the LLM is unavailable, as the
 protocol safety floor, and as approach B in the experiments."""
 import re
 
@@ -33,8 +33,8 @@ def _has(text: str, kw: str) -> bool:
     return kw in text
 
 
-def protocol_floor(report: str) -> str:
-    """Minimum severity the protocol guarantees, whatever the LLM says."""
+def keyword_severity(report: str) -> str:
+    """Severity from keywords alone. Used by the rules-only baseline (approach B). Unchanged."""
     t = report.lower()
     if any(_has(t, k) for k in CRITICAL):
         return "critical"
@@ -43,13 +43,21 @@ def protocol_floor(report: str) -> str:
     return "low"
 
 
+def protocol_floor(report: str) -> str:
+    """Safety net applied on top of the LLM. Narrow on purpose: it only forces 'critical' for
+    unambiguous life-threat phrases. The broad keyword list (fire, smoke, injured, ...) made it
+    over-triage non-emergencies in the ablation, so it is no longer part of the floor."""
+    t = report.lower()
+    return "critical" if any(_has(t, k) for k in CRITICAL) else "low"
+
+
 def rule_assessment(report: str) -> Assessment:
     t = report.lower()
     hits = {c: [k for k in kws if _has(t, k)] for c, kws in CATEGORY_KEYWORDS.items()}
     best = max(hits, key=lambda c: len(hits[c]))
     category = best if hits[best] else "other"
 
-    severity = protocol_floor(report)
+    severity = keyword_severity(report)
     if severity == "low" and category == "medical":
         severity = "medium"
 
