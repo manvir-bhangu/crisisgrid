@@ -154,3 +154,20 @@ Process: the change was designed after the test split had been inspected, so the
 post-hoc, not a clean holdout. A fresh holdout batch is needed for a clean measurement.
 Limits: eight author-written injection cases cannot establish injection robustness; the floor is kept as
 defence in depth, not as proven protection.
+
+## 9. After narrowing the floor (post-hoc for test; dev supports the change independently)
+
+| | Dev (50) | Test (100) |
+|---|---|---|
+| LLM alone: severity exact / under / over | 74% / 10% / 16% | 77% / 8% / 15% |
+| LLM + narrow floor: same | 74% / 10% / 16% | 77% / 8% / 15% |
+| Floor changed the answer | 0 | 1 (hurt 1) |
+| Critical recall / precision | 17/18 / 77% | 31/31 / 76% |
+| Category accuracy / macro-F1 | 84% / 0.743 | 89% / 0.876 |
+| Severity within one level | 100% | 99% |
+
+Test severity exact 77% has a 95% interval of roughly 68-84%; category accuracy 89% roughly 81-94%.
+B (rules only) is unchanged at 28% (dev) and 30% (test) severity exact.
+The narrow floor neither helps nor hurts on these scenarios; it is retained as defence in depth for injection.
+Main residual weakness: over-triage by the LLM (9 of 31 test "high" reports rated critical; 24% of predicted
+criticals are not critical). Dev "other" category: 1 of 8 correct, mostly ambiguous hazards.
