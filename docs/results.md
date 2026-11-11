@@ -121,3 +121,22 @@ across methods; differences come only from travel times of served incidents.
   test uses a language model. Shared blind spots can make agreement look better than it would be against
   human dispatchers. Treat all results as a development benchmark on synthetic data.
 - Scenarios were not written to fit the rules or the prompt, but the author could see how both were built.
+
+## 7. AI triage, 100 test scenarios (run_20261111_093841; model gemini-3.5-flash-lite, 0/100 fallbacks)
+
+| Metric | B: rules only | C: LLM + protocol floor |
+|---|---|---|
+| Category accuracy | 58% | 89% (Wilson 95% interval about 81-94%) |
+| Category macro-F1 | 0.591 | 0.876 |
+| Severity exact / within one level | 30% / 53% | 68% / 90% |
+| Under-triage | 57% | 7% (about 3-14%) |
+| Over-triage | n/a | 25% (12 low and 4 medium rated higher; 9 high rated critical) |
+| Critical recall / precision | 9/31 recall | 31/31 recall, 31/41 = 76% precision |
+| McNemar (category) | only B right 7, only C right 38, p < 0.001 | |
+
+Per language (B / C): en 60/90 (n=58), hi 50/100 (n=8), hi-en 71/76 (n=17), pa 29/100 (n=7), pa-en 50/90 (n=10).
+Caveats: author and labeller of the scenarios is itself a language model; the critical share (33%) is far higher than
+real data; "0/31 critical missed" is compatible with a true miss rate of up to about 10%; B is a quickly written
+baseline; per-language cells are small. The test split was inspected after this run, so any later change to the
+rules, prompt or floor must be reported as post-hoc.
+Dataset: 150 scenarios (50 dev, 100 test); critical 49, high 42, low 35, medium 24; en 84, hi-en 26, pa-en 16, hi 13, pa 11.

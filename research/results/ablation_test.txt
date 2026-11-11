@@ -1,0 +1,39 @@
+FLOOR CHANGED THE ANSWER (13 reports; helped 1, hurt 12)
+S013 HURT: truth=low llm=low floor=high final=high | Is this the fire brigade number? I just want to ask about NOC for my shop
+S025 HURT: truth=medium llm=medium floor=high final=high | Dog bite on child's leg, bleeding a bit, child crying
+S026 HURT: truth=low llm=low floor=high final=high | road pe pani bhar gaya hai, gaadiyan beech mein ruki hain, koi injured nahi
+S063 HURT: truth=low llm=low floor=high final=high | Is the fire station near Town Hall open? We want to book a fire safety demo for our school
+S064 HURT: truth=low llm=low floor=high final=high | sadi dukaan de bahar scooter di takkar hoyi hai, dowe pase dhakka-mukki ho rahi hai par koi zakhmi nahi
+S065 HELPED: truth=high llm=medium floor=high final=high | Smoke is coming out of the transformer box near Putlighar chowk and there is a burning smell, shopkeepers are 
+S066 HURT: truth=medium llm=high floor=critical final=critical | हमारी बिल्डिंग की लिफ्ट में दो लोग फंसे हैं, एक बुज़ुर्ग को घबराहट हो रही है
+S084 HURT: truth=low llm=low floor=high final=high | Smoke alarm went off because of burnt toast, no fire, windows open
+S087 HURT: truth=low llm=medium floor=high final=high | My neighbour's dog bit me, bleeding slightly, I have washed the wound
+S104 HURT: truth=medium llm=medium floor=high final=high | A strong smell of something burning in our building but I can't find the source, no smoke visible
+S109 HURT: truth=low llm=low floor=high final=high | Fire alarm test is scheduled in our building at 3pm, just informing the fire department
+S135 HURT: truth=low llm=low floor=high final=high | Someone is selling fake fire extinguishers in our market, I want to report it
+S145 HURT: truth=low llm=low floor=high final=high | I cut my finger while chopping vegetables, bleeding is slowing down, should I go to hospital?
+
+CATEGORY ERRORS OF THE LLM (11)
+S018: truth=other llm=accident | kuch log jhagda kar rahe hain road par, ek ke sar se khoon nikal raha hai
+S069: truth=other llm=accident | Two groups are fighting with sticks near Gol Bagh, a man has fallen down and is bleeding heavily
+S082: truth=other llm=rescue | bijli ka tar toot ke paani mein gir gaya hai, bachche us paani mein khel rahe hain
+S107: truth=rescue llm=medical | Man electrocuted while fixing a street light, he is hanging on the pole and not moving
+S111: truth=fire llm=accident | Truck full of gas cylinders overturned on the bypass, some cylinders are rolling on the road, no fire, driver 
+S124: truth=medical llm=accident | A tree branch fell on two people sitting at a tea stall, one is unconscious
+S130: truth=medical llm=accident | ladki ko chhat se girte dekha, wo zameen pe pari hai, saans chal rahi hai par bol nahi rahi
+S136: truth=rescue llm=accident | factory mein machine mein haath fas gaya hai ek mazdoor ka, bahut cheekh raha hai, khoon bhi hai
+S137: truth=other llm=rescue | veere sadi gali vich naali ch ik kutta fas gya hai, bhonk riha hai
+S139: truth=rescue llm=accident | Crowd is pushing at the temple gate, an old woman fell and people are stepping near her
+S141: truth=rescue llm=accident | Car stalled on the railway crossing with the barrier coming down, family inside screaming
+
+FINAL SEVERITY WRONG BY TWO OR MORE LEVELS
+S013: truth=low final=high | Is this the fire brigade number? I just want to ask about NOC for my shop
+S026: truth=low final=high | road pe pani bhar gaya hai, gaadiyan beech mein ruki hain, koi injured nahi
+S063: truth=low final=high | Is the fire station near Town Hall open? We want to book a fire safety demo for our school
+S064: truth=low final=high | sadi dukaan de bahar scooter di takkar hoyi hai, dowe pase dhakka-mukki ho rahi hai par koi zakhmi nahi
+S066: truth=medium final=critical | हमारी बिल्डिंग की लिफ्ट में दो लोग फंसे हैं, एक बुज़ुर्ग को घबराहट हो रही है
+S084: truth=low final=high | Smoke alarm went off because of burnt toast, no fire, windows open
+S087: truth=low final=high | My neighbour's dog bit me, bleeding slightly, I have washed the wound
+S109: truth=low final=high | Fire alarm test is scheduled in our building at 3pm, just informing the fire department
+S135: truth=low final=high | Someone is selling fake fire extinguishers in our market, I want to report it
+S145: truth=low final=high | I cut my finger while chopping vegetables, bleeding is slowing down, should I go to hospital?
