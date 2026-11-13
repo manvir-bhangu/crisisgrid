@@ -171,3 +171,36 @@ B (rules only) is unchanged at 28% (dev) and 30% (test) severity exact.
 The narrow floor neither helps nor hurts on these scenarios; it is retained as defence in depth for injection.
 Main residual weakness: over-triage by the LLM (9 of 31 test "high" reports rated critical; 24% of predicted
 criticals are not critical). Dev "other" category: 1 of 8 correct, mostly ambiguous hazards.
+
+## 10. Dynamic arrivals (200 trials not run; 30 trials per rate, seed 7, 12 ambulances, 2 h of Poisson arrivals)
+
+Response time = report arrival until a unit reaches the scene (OSRM road times). Policies: A FIFO + nearest unit,
+B severity priority (ties by arrival) + nearest unit, C weighted Hungarian over waiting incidents and free units,
+D like C with weights growing with waiting time. No reassignment of moving units.
+
+| Rate | Policy | All mean s | Critical mean s | Critical within 15 min | Low mean s | Low p95 s |
+|---|---|---|---|---|---|---|
+| 20/h | A / B / C / D | 235 | 248 / 245 / 244 / 245 | 100% | 226 / 233 / 232 / 233 | 426 / 437 / 427 / 437 |
+| 30/h | A | 481 | 499 | 83.9% | 464 | 1229 |
+| 30/h | B | 472 | 336 | 99.6% | 660 | 2118 |
+| 30/h | C | 444 | 330 | 99.3% | 607 | 2147 |
+| 30/h | D | 469 | 335 | 99.6% | 627 | 1955 |
+| 40/h | A | 1099 | 1147 | 43.0% | 1128 | 2618 |
+| 40/h | B | 1089 | 401 | 99.7% | 2474 | 5370 |
+| 40/h | C | 972 | 384 | 98.2% | 2206 | 5931 |
+| 40/h | D | 1088 | 399 | 99.7% | 2239 | 4635 |
+
+Paired differences in seconds (negative = first policy faster; Wilcoxon, uncorrected):
+- B vs A, 30/h and 40/h: critical -144.6 and -735.4 (p < 0.0001); low +184.9 and +1322.9 (p < 0.0001); all -8.2 (p = 0.40) and -9.6 (p = 0.28).
+- C vs B: all -24.7 (p = 0.0001) and -114.1 (p < 0.0001); critical -5.8 (p = 0.13) and -15.0 (p = 0.058); low -48.3 (p = 0.003) and -258.7 (p < 0.0001).
+- D vs C: all +22.0 (p = 0.0003) and +112.6 (p < 0.0001); critical +6.0 (p = 0.24) and +12.9 (p = 0.13); low +16.0 (p = 0.20) and +31.8 (p = 0.32).
+
+Findings: at 20/h policy does not matter; from 30/h priority ordering protects critical incidents but shifts waiting onto
+low-severity incidents (all-incident mean unchanged); weighted Hungarian does not significantly improve critical response
+over plain priority but improves the all-incident and low-severity means; aging narrows the low-severity tail (p95 4635 vs
+5931 s at 40/h) at the cost of a higher all-incident mean.
+Open hypothesis (untested): C's gain over B comes from distance tie-breaking within a severity class, because the
+objective w*(t - 100001) makes the choice of served incidents lexicographic by severity. A policy "highest severity, then
+nearest incident" (B2) is needed to test it.
+Limits: zero dispatch delay, return trip equals outbound trip, no traffic or hand-over time, ambulances only, assumed
+severity mix, scene time and arrival rates, no reassignment, uncorrected tests, p95 and worst values pooled over 30 trials.
