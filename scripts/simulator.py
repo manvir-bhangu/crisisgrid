@@ -1,14 +1,18 @@
-"""Plays the role of the vehicles. Talks to CrisisGrid only through its public API,
-exactly as real GPS-equipped vehicles would."""
+﻿"""Plays the role of the vehicles. Talks to CrisisGrid only through its public API,
+exactly as real GPS-equipped vehicles would (it authenticates with SERVICE_API_KEY from .env)."""
 import argparse
 import bisect
 import math
+import os
+import sys
 import time
 
 import httpx
+from dotenv import dotenv_values
 
 API = "http://127.0.0.1:8000"
-OSRM = "http://localhost:5001"
+OSRM = "http://127.0.0.1:5001"
+ENV = dotenv_values(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 
 def haversine(a, b):  # points are (lon, lat)
@@ -78,12 +82,12 @@ def main():
     ap.add_argument("--tick", type=float, default=1.0)
     args = ap.parse_args()
 
+    key = ENV.get("SERVICE_API_KEY", "")
+    if not key:
+        sys.exit("SERVICE_API_KEY is empty in .env")
     speed_ms = args.speed_kmh / 3.6 * args.accel
     delay, dwell = args.dispatch_delay / args.accel, args.dwell / args.accel
-    import os
-    from dotenv import dotenv_values
-    env = dotenv_values(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
-    client = httpx.Client(base_url=API, timeout=5, headers={"X-API-Key": env.get("SERVICE_API_KEY", "")})
+    client = httpx.Client(base_url=API, timeout=5, headers={"X-API-Key": key})
     incident_loc, state = {}, {}
     last = time.monotonic()
     print(f"Simulator running: {args.speed_kmh} km/h, {args.accel}x time. Ctrl+C to stop.")
@@ -93,11 +97,18 @@ def main():
         now = time.monotonic()
         dt, last = now - last, now
         try:
-            assignments = client.get("/dispatch/assignments", params={"active_only": True}).json()
-            units = {u["id"]: u for u in client.get("/resources").json()}
+            ra = client.get("/dispatch/assignments", params={"active_only": True})
+            ru = client.get("/resources")
         except httpx.HTTPError as exc:
             print("API unavailable:", repr(exc))
             continue
+        if ra.status_code in (401, 403) or ru.status_code in (401, 403):
+            sys.exit("The server refused the service key. Check SERVICE_API_KEY in .env, then restart uvicorn.")
+        if ra.status_code != 200 or ru.status_code != 200:
+            print("API error:", ra.status_code, ru.status_code)
+            continue
+        assignments = ra.json()
+        units = {u["id"]: u for u in ru.json()}
 
         live = set()
         for a in assignments:

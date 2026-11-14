@@ -204,3 +204,23 @@ objective w*(t - 100001) makes the choice of served incidents lexicographic by s
 nearest incident" (B2) is needed to test it.
 Limits: zero dispatch delay, return trip equals outbound trip, no traffic or hand-over time, ambulances only, assumed
 severity mix, scene time and arrival rates, no reassignment, uncorrected tests, p95 and worst values pooled over 30 trials.
+
+## 4b. Load-test conditions (for the report)
+- Machine: Windows laptop, Intel Core i5-1235U (10 cores, 12 threads), 8 GB RAM; PostGIS, Redis and OSRM in Docker
+  on the same machine; one uvicorn process (no reload) running the API.
+- AI_ENABLED was true: each created incident also triggered a background LLM analysis (not confirmed how many hit
+  rate limits and fell back to rules). The load generator ran on the same laptop, so client and server compete for CPU.
+- "50 clients" = 50 concurrent HTTP threads, plus one WebSocket listener measuring event delay as
+  (receive time - the server's publish timestamp), both clocks on the same machine.
+- 300 incidents per run, created in one burst; each run measured once (no repetitions), so figures are single
+  observations, not medians.
+- Not measured: CPU and memory use during the run, error rate under longer load, behaviour on a different machine.
+
+## 11. Demonstrations confirmed by the author
+- Phone GPS: a phone on mobile data opened the public tunnel address, signed in as a responder, shared its real GPS
+  position for a simulated ambulance, and the marker moved on the dispatcher dashboard (confirmed 2026-11-14).
+  Not measured: update delay, GPS accuracy, behaviour on a poor connection.
+- Browser login walkthrough (dispatcher and responder roles, wrong-password message, role restriction):
+  NOT yet confirmed step by step. Do not claim it in the demo or report until it is.
+- Note for the demo: the location endpoint accepts a position for any unit from any responder account,
+  does not check that the position is inside the service zone, and does not reject impossible jumps.
